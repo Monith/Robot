@@ -1,0 +1,216 @@
+
+##Appendix of Rcode
+
+logDir <- "logs"
+ll <- list.files(logDir)
+temp <- paste(logDir, ll, sep ='/')
+first <- temp[1]
+test <- readLines(first)
+
+
+rmvHash <- function(f) {
+  
+  f = f[-(grep("#",f))]
+  
+  return(f) 
+} # function removes comments from the file
+
+splitLine <- function(f) {
+  
+  els <- strsplit(f," +")[[1]]
+      
+} #splits each line into single characters
+
+vectorize <- function(char) {
+  
+    vector <- as.numeric(char[14:length(char)])
+    vector <- vector[vector != 0]
+    return (vector)
+} #returns the range values as a vector
+
+noLoop <- function(list) {
+  
+  l <- length(list)  
+  data <- matrix('NA',l,11)
+  names <- c('time','host','robot','interface','index',
+                  'type','subtype','xval','yval','yaw','range')
+  temp <- rep(NA,length(list))
+  
+  for(i in 1:l) {
+          
+        data[i,1:7] <- list[[i]][1:7]
+    
+        if(data[i,4] == 'position2d') {
+          data[i,8] <- list[[i]][8]
+          data[i,9] <- list[[i]][9]
+          data[i,10] <- list[[i]][10]
+        } # assigns x and y values
+        
+  }#for loop that asigns proper values to all elements in the matrix
+  
+  data <- as.data.frame(data) #turns matrix into a list
+  colnames(data) <- names #asigns names to all the columns
+  
+  range <- lapply(list,vectorize) # gets all the range data and 
+                                  # creates a series of lists
+  
+  data$range <- range #puts the range values into the data frame
+
+  data <- data[data$type != '004',] #subsets out the 004 values
+  rownames(data) <- seq(length=nrow(data)) #resets the number of rows
+  
+  
+  data$xval <- as.numeric(as.character(data$xval))
+  data$yval <- as.numeric(as.character(data$yval))
+  data$yaw <- as.numeric(as.character(data$yaw))
+  #turns all the values into workable numbers
+  
+  return(data)
+}# parses and returns data frame
+#worked with Melyssa Cheatham
+
+
+validate <- function(x) {
+  
+  length <- dim(x)[1]
+  check <- 0
+  
+  for(i in 1:length){
+    
+    if(x$interface[i] == 'laser'){
+    
+      if(length(x$range[[i]]) != 361){
+        print('Error in range length index #')
+        print(i)
+        check <- check+1
+      }
+    
+      if(x$range[[i]][1] != x$range[[i]][361]){
+        print('Lasers first and last values are not the same index #')
+        check <- check+1
+      }
+      
+    }#if loop   
+  }#for loop
+  
+  x <- Double.pos(x,length)
+  
+  if(check == 0)
+    print('No errors found! You are good to go')
+  
+  return(x)
+  
+} #validate Length and checks first and last values
+
+Double.pos <- function(x,l) {
+  
+  j <-0
+  
+  for(i in 1:(l-1)){
+    
+    if(x$interface[i] == 'position2d' && 
+         x$interface[i+1] == 'position2d'){
+      #print('Two position2d in a row at index #')
+      #print(i)
+      j <- j+1
+    }
+  }#checks to see how many double positions there are
+  
+  index <- rep(NA,j)
+  j <- 1
+  
+  for(i in 1:(l-1)){
+    
+    if(x$interface[i] == 'position2d' && 
+         x$interface[i+1] == 'position2d'){
+      index[j] <- i
+      j <- j+1
+    }
+  }#stores all the double positions in an index
+  
+  if(length(index) != 0)
+    x <- x[-index,] #subsets out all the double position values
+  
+  rownames(x) <- seq(length=nrow(x))
+  
+  return(x)
+  
+} #takes out all the double positions
+
+readLog <- function(f) {
+  
+  file <- file(f, open = 'r')
+  
+  f <- readLines(file) #reads in data file
+  f <- rmvHash(f) #remove lines that are comments
+  f <- lapply(f,splitLine) #splits into substring
+  data <- noLoop(f) #builds data frame
+  x <- validate(data)
+  
+  close(file)  
+  return(x)
+}
+
+FullData <- lapply(list.files(logDir,pattern = 'log$', full.n = 'TRUE')
+                   ,readLog)
+#applies readLog to all the files in directory
+
+error.Check <- function(x) {
+  
+  length <- dim(x)[1]
+  j <- 1
+  index <- rep('NA',(length/2))
+  
+  for(i in 1:length) {
+    
+      if(x$interface[i] == 'laser'){
+        index[j] <- x$range[i][361] - x$range[i][1]
+        #checks to see if first and last values are different
+        j <- 1
+      }
+      
+  }
+  if(index == 0)
+    return(0) #if there is no error throughout the entire thing then return 0
+  else
+    return(sd(index)) #if there is a single error, return the sd of index
+}
+
+error.list <- lapply(FullData,error.Check)
+#applies error.check to all Data sets
+
+
+showLook <- function(data) {
+  
+  l <- dim(data)[1]
+  rads <- (1:360) * (pi/180)
+  
+    
+    x <- (data$range[[l]][1:360] * cos(rads))
+    x <- x + data$xval[l-1]
+    y <- (data$range[[l]][1:360] * sin(rads))
+    y <- y + data$yval[l-1]
+    #constructs data points for circles
+  
+    xboundlim <- data$xval[l-1] - 3
+    xboundmax <- data$xval[l-1] + 3
+    yboundlim <- data$yval[l-1] - 3
+    yboundmax <- data$yval[l-1] + 3
+    # creates bounds
+  
+  
+    par(pty="s")
+    plot(y~x, type = 'l',xlim = c(xboundlim,xboundmax),
+         ylim = c(yboundlim,yboundmax))
+    draw.circle(data$xval[l-1],data$yval[l-1],2,border = 'green')
+    points(data$xval[l-1],data$yval[l-1],col = 'red',pch = 1)
+    #plots the plot as well as the full capable view
+  
+}
+
+pdf('rplot.pdf')
+par(mfrow = c(5,5))
+sapply(FullData, function(x) showLook(x))
+dev.off()
+#plots all 100 graphs on 4 5x5 pages
+
